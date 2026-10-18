@@ -1,8 +1,9 @@
 // Layer 2: the output filter. Plain code that inspects the model's reply before
 // the student sees it. It doesn't care what the student said or whether the
-// model was persuaded; it only counts code. (The "metal detector".)
+// model was persuaded; it only looks at the code in the reply. (Plagiarism
+// detection at submission: it can't be argued with.)
 
-import type { HintLevel } from "./prompt";
+import type { Mode } from "./prompt";
 
 // A hint may quote or sketch a little code, but more than this is a solution.
 const MAX_NEW_CODE_LINES_PER_REPLY = 3;
@@ -12,6 +13,7 @@ const MAX_NEW_CODE_LINES_PER_CHAT = 6;
 const MAX_QUOTED_CODE_LINES = 5;
 
 const normalize = (line: string) => line.replace(/\s+/g, " ").trim();
+const squash = (text: string) => text.replace(/\s+/g, "");
 
 // Outside code fences, a line counts as code if it looks like Python
 // (keyword ... colon, return, assignment) or C-style (ends in ; { or }).
@@ -45,7 +47,7 @@ export function codeLines(text: string): string[] {
       found.push(normalize(bare));
       continue;
     }
-    // Inline code inside a sentence: "Next line: `best = max(best, current)`".
+    // Inline code inside a sentence: "Next line: `best = max(best, x)`".
     for (const [, span] of line.matchAll(/`([^`]+)`/g)) {
       if (looksLikeCode(span.trim())) found.push(normalize(span));
     }
@@ -54,18 +56,30 @@ export function codeLines(text: string): string[] {
 }
 
 // Code lines that are NOT just quotes of the student's own code. Pointing at
-// the student's buggy line is a valid level-2 hint, so it shouldn't count.
+// the student's buggy line is a valid hint, so it shouldn't count.
 function newCodeLines(text: string, studentCode: string): string[] {
   const own = new Set(studentCode.split("\n").map(normalize).filter(Boolean));
   return codeLines(text).filter((line) => !own.has(line));
 }
 
 // Returns why the reply leaks a solution, or null if it's safe to show.
+// `forbidden` holds answer lines (e.g. a step's key line) that must never
+// appear, even once, unless the student already wrote them.
 export function findLeak(
   reply: string,
   studentCode: string,
   earlierReplies: string[],
+  forbidden: string[] = [],
 ): string | null {
+  const replySquashed = squash(reply);
+  const codeSquashed = squash(studentCode);
+  for (const line of forbidden) {
+    const answer = squash(line);
+    if (replySquashed.includes(answer) && !codeSquashed.includes(answer)) {
+      return `writes the answer line "${line}"`;
+    }
+  }
+
   const fresh = newCodeLines(reply, studentCode);
   if (fresh.length > MAX_NEW_CODE_LINES_PER_REPLY) {
     return `${fresh.length} new lines of code in one reply`;
@@ -87,12 +101,12 @@ export function findLeak(
 }
 
 // Shown when the model leaks twice in a row. Written by hand, so it can't leak.
-const FALLBACK_HINTS: Record<HintLevel, string> = {
-  1: "I can't hand you the solution, but here's something to think about: trace your code by hand on [1, 2, 2, 2]. When the loop ends, has the last streak ever been compared with your best so far?",
-  2: "I can't write it for you, but look at where you update your best count. It only happens when a streak breaks, so a streak that runs to the end of the list is never checked. Also try a one-item list like [5].",
-  3: "I can't give you the code, but here's a plan in words: handle the empty list first; keep a count for the current streak and one for the best; grow the current count when a number repeats and reset it otherwise; and after the loop, compare the final streak with the best one more time. Try writing it yourself!",
+const FALLBACKS: Record<Mode, string> = {
+  hint: "Here's your one hint: pick a single bar in the middle and ignore the rest of the problem for a moment. What decides how high the water above that one bar can rise?",
+  explain:
+    "I can't write that line for you. Look at the worked example above: it does the same thing on a different input. Which part of it matches the blank in your code?",
 };
 
-export function fallbackHint(level: HintLevel): string {
-  return FALLBACK_HINTS[level];
+export function fallbackReply(mode: Mode): string {
+  return FALLBACKS[mode];
 }

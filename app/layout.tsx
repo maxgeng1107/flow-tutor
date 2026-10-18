@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Hint Tutor",
-  description: "A Python tutor that gives hints, never solutions.",
+  title: "Flow Tutor",
+  description: "A tutor that gives one hint, then rebuilds the path in small steps.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
