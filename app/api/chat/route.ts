@@ -1,17 +1,25 @@
 import Anthropic from "@anthropic-ai/sdk";
+import type { HintLevel } from "@/lib/prompt";
+import { tutorReply } from "@/lib/tutor";
 
-// Cheap, fast model. Override with ANTHROPIC_MODEL in .env.local if you want another.
-const MODEL = process.env.ANTHROPIC_MODEL ?? "claude-haiku-5-5";
 const MAX_MESSAGES = 30;
 const MAX_CHARS = 4000;
 
-type ChatRequest = { messages: Anthropic.MessageParam[] };
+type ChatRequest = {
+  messages: Anthropic.MessageParam[];
+  code: string;
+  // Lives in the browser, so a user could tamper with it. Fine for a demo
+  // (the filter still applies at every level); in production, track it server-side.
+  hintLevel: HintLevel;
+};
 
 // This endpoint is public, so reject anything that isn't a short, well-formed
 // chat. Otherwise anyone could use it to run big prompts on our API key.
 function isValidChat(body: unknown): body is ChatRequest {
   if (typeof body !== "object" || body === null) return false;
-  const { messages } = body as { messages?: unknown };
+  const { messages, code, hintLevel } = body as Record<string, unknown>;
+  if (typeof code !== "string" || code.length > MAX_CHARS) return false;
+  if (hintLevel !== 1 && hintLevel !== 2 && hintLevel !== 3) return false;
   if (!Array.isArray(messages) || messages.length === 0) return false;
   if (messages.length > MAX_MESSAGES) return false;
   return messages.every(
@@ -38,26 +46,15 @@ export async function POST(request: Request) {
   const client = new Anthropic(); // reads ANTHROPIC_API_KEY from process.env
 
   try {
-    // The API is stateless: we resend the whole conversation every time.
-    const response = await client.messages.create({
-      model: MODEL,
-      // Haiku 5.5 always thinks first, and thinking tokens count toward this
-      // limit, so leave headroom or replies get cut off.
-      max_tokens: 4000,
-      output_config: { effort: "medium" },
-      system: "You are a helpful programming tutor for an intro Python course.",
-      messages: body.messages,
-    });
-
-    if (response.stop_reason === "refusal") {
-      return Response.json({ reply: "Sorry, I can't help with that one." });
-    }
-
-    const reply = response.content
-      .filter((block) => block.type === "text")
-      .map((block) => block.text)
-      .join("");
-    return Response.json({ reply });
+    const result = await tutorReply(
+      client,
+      body.messages,
+      body.code,
+      body.hintLevel,
+    );
+    if (result.leak) console.log(`[filter] ${result.guard}: ${result.leak}`);
+    // Only the final reply goes to the browser, never the blocked drafts.
+    return Response.json({ reply: result.reply, guard: result.guard });
   } catch (error) {
     // Full details go to the server log only; the browser gets a short message.
     console.error(error);
