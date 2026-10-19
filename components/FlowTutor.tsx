@@ -157,6 +157,16 @@ export default function FlowTutor() {
     else act({ type: "run", passed: false, at });
   }
 
+  // Forget mastery (the save effect writes the empty record) and start fresh.
+  function startOver() {
+    setFlow(start(NO_MASTERY));
+    setCodeByTask({});
+    setClimbedBack(false);
+    setHint({ status: "none" });
+    setLastRun(null);
+    setPassed(null);
+  }
+
   // First Next on a step shows the rule; the next one moves on.
   function goNext() {
     if (!passed) return;
@@ -183,7 +193,7 @@ export default function FlowTutor() {
       <div className={styles.columns}>
         <section className={styles.left}>
           {phase.kind === "done" ? (
-            <Done mastery={flow.mastery} />
+            <Done mastery={flow.mastery} onStartOver={startOver} />
           ) : phase.kind === "ladder" && phase.part === "solution" ? (
             <Solution step={phase.step} onContinue={() => act({ type: "continue", at: Date.now() })} />
           ) : (
@@ -287,6 +297,14 @@ export default function FlowTutor() {
           )}
         </aside>
       </div>
+
+      {phase.kind !== "done" && (
+        <footer className={styles.footer}>
+          <button type="button" className={styles.linkButton} onClick={startOver}>
+            Reset progress
+          </button>
+        </footer>
+      )}
     </div>
   );
 }
@@ -347,7 +365,7 @@ function Solution({ step, onContinue }: { step: number; onContinue: () => void }
   );
 }
 
-function Done({ mastery }: { mastery: Mastery }) {
+function Done({ mastery, onStartOver }: { mastery: Mastery; onStartOver: () => void }) {
   return (
     <>
       <h2>Done 🎉</h2>
@@ -362,6 +380,12 @@ function Done({ mastery }: { mastery: Mastery }) {
           </li>
         ))}
       </ul>
+      <div className={styles.actions}>
+        <button type="button" onClick={onStartOver}>
+          Start over
+        </button>
+        <span className={styles.dim}>Forgets your progress on this device.</span>
+      </div>
     </>
   );
 }

@@ -382,3 +382,22 @@
     grid-template-columns: 1fr;
   }
 }
+
+.footer {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 24px;
+}
+
+.page .linkButton {
+  padding: 0;
+  border: none;
+  background: none;
+  font-size: 13px;
+  opacity: 0.5;
+  text-decoration: underline;
+}
+
+.page .linkButton:hover {
+  opacity: 0.8;
+}
