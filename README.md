@@ -2,7 +2,7 @@
 
 A Python tutor for one hard problem, [Trapping Rain Water](https://leetcode.com/problems/trapping-rain-water/), built around one idea: **when a student is stuck, more hints don't help. Rebuild the path instead.**
 
-**Live demo:** https://flow-tutor.vercel.app · **1-minute video:** _coming soon_
+**Live demo:** https://flow-tutor.vercel.app · **Demo video (90 s):** https://flow-tutor.vercel.app/demo.webm
 
 Inspired by UCSD LEI's SmartLearning Hub and the point that general AI tools don't necessarily help students learn.
 
