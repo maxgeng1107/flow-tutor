@@ -63,8 +63,7 @@ export default function AskWhy({ taskId, code, onAsk }: Props) {
       <div className={styles.chatLog}>
         {messages.length === 0 && (
           <p className={styles.dim}>
-            Ask why something works, like “why min and not max?” Asking is fine,
-            but then this step won&apos;t count as mastered.
+            Ask why something works, like “why min and not max?”
           </p>
         )}
         {messages.map((m, i) => (
