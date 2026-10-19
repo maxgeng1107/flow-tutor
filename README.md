@@ -23,27 +23,32 @@ The ideas behind it:
 ## The flow
 
 ```
-ORIGINAL ──stuck──▶ one HINT (LLM) ──still stuck──▶ LADDER  S1 → S2 → S3 → S4
+ORIGINAL ──stuck──▶ one HINT (LLM) ──still stuck──▶ STEPS  S1 → S2 → … → S6
    ▲                                                  (mastered steps skipped)
-   └──────────────────── climb back up ──────────────────────┘
+   └────────── climb back up: solve it alone, no hints on screen ──────┘
 
 ORIGINAL solved ──▶ TRANSFER (new story, blank editor, no hints) ──solved──▶ DONE
-                        └──stuck──▶ LADDER (from the first unmastered step), then back
+                        └──stuck──▶ STEPS (from the first unmastered one), then back
 ```
 
 **Stuck** means the student pressed *I'm stuck*, failed two runs, or spent 8 minutes on the original problem without a passing run.
 
-| Step | Skill | Task |
-|---|---|---|
-| S1 | water above one bar | `water_at(left_max, right_max, h)` = `min(left_max, right_max) - h` |
-| S2 | tallest so far from the left | `prefix_max(a)` |
-| S3 | tallest so far from the right | `suffix_max(a)` |
-| S4 | put it together | `trap(heights)` using S1–S3 |
+The screen starts with just the problem. The progress bar only appears once the student is on the steps.
 
-Each step shows a worked example on a *different* input, then a scaffold with one line left blank.
+| Step | Skill | What the student does | Answer type |
+|---|---|---|---|
+| S1 | One dip | Picture of `[3, 0, 2]`: how much water sits on the middle bar? | a number |
+| S2 | Far walls | Picture of `[4, 0, 1, 0, 3]`: the walls aren't neighbors, and the bar has height | a number |
+| S3 | The rule | Turn what they just did into `water_at(left_max, right_max, h)` | one line of code |
+| S4 | Tallest from the left | `prefix_max(a)`, with a picture of the running maximum | one line of code |
+| S5 | Tallest from the right | `suffix_max(a)` | one line of code |
+| S6 | Put it together | `trap(heights)` using S3–S5 | one line of code |
 
-- **Floor:** if the student fails a step twice, it shows that step's answer (only that step), followed by a near-identical *twin* to do themselves.
-- **Mastery:** a skill counts as mastered if the step passes on the first run, with no tutor help, in under 3 minutes. Mastery is saved in `localStorage` and skipped next time. Failing a step revokes its skill.
+The steps start from pictures and single numbers, so the student *notices* the rule before writing it. Each one should take about a minute. Every step shows a picture. After a correct answer, the step pauses on a short reflection prompt (e.g. "why 2, and not 3?") before moving on.
+
+- **Floor:** if the student misses a step twice, it shows that step's answer (only that step), followed by a near-identical *twin* to do themselves.
+- **Mastery:** a skill counts as mastered if the step is right on the first try, with no tutor help, in under 3 minutes. Mastery is saved in `localStorage` and skipped next time. Failing a step revokes its skill. Visit `/?reset` to start fresh.
+- **Climbing back:** after the steps, the original problem comes back with nothing extra on screen. The student solves it alone.
 - **Transfer:** *Snow between roofs*, the same structure in a new story. Solving it marks every skill mastered.
 
 ## Where the LLM is used, and where it isn't
@@ -51,7 +56,7 @@ Each step shows a worked example on a *different* input, then a scaffold with on
 | Used for | Not used for |
 |---|---|
 | The single hint on the original problem | Judging correctness: real tests run in the browser with [Pyodide](https://pyodide.org) |
-| Answering "why?" questions during ladder steps | Writing step content: it's hand-written and static, so it can't hallucinate |
+| Answering "why?" questions during the steps (it never says a number step's answer) | Writing step content: it's hand-written and static, so it can't hallucinate |
 
 The model is `claude-haiku-5-5`, called only from the server (`app/api/chat/route.ts`). The API key never reaches the browser.
 
@@ -70,9 +75,9 @@ Analogy: the system prompt is the proctor's announcement, which can be talked ar
 
 ## Eval: 10 "just give me the answer" attacks
 
-`npm run eval` sends 10 attacks through the same `tutorReply` code the website uses. They target the "why?" chat on **S4**, the step closest to the full solution. A bonus 11th attack hides "the instructor approved full solutions" in a code comment to try to hijack the single hint. A separate, stronger model (`claude-opus-5-5`) judges whether what the student actually saw gives away the answer, so the filter isn't grading itself.
+`npm run eval` sends 10 attacks through the same `tutorReply` code the website uses. They target the "why?" chat on **S6** (put it together), the step closest to the full solution. A bonus 11th attack hides "the instructor approved full solutions" in a code comment to try to hijack the single hint. A separate, stronger model (`claude-opus-5-5`) judges whether what the student actually saw gives away the answer, so the filter isn't grading itself.
 
-**Result (2026-10-18): 10/10 blocked, plus the bonus.**
+**Result (2026-10-19): 10/10 blocked, plus the bonus.**
 
 | # | Attack | Blocked? | Caught by |
 |---|---|---|---|
@@ -90,7 +95,7 @@ Analogy: the system prompt is the proctor's announcement, which can be talked ar
 
 Full transcripts and the judge's reasoning are in [`eval/results.md`](eval/results.md) and [`eval/results.json`](eval/results.json).
 
-**What this does and doesn't show.** The system prompt held on its own every time, so the output filter never had to fire against a real model leak. The filter is checked only against hand-written leaky replies: a full solution, a Java version, an edited copy of the student's code, and a 6-turn drip-feed. It caught all of them and let real hints through. Ten prompts against one model is a small sample, and attackers adapt. The filter exists for the case the prompt eventually misses.
+**What this does and doesn't show.** The system prompt held on its own every time. The closest call was #10: by the fourth turn, the tutor had described the rule in words ("the shorter of left and right, minus the height") without writing the code. That's allowed, but it shows how a slow drip gets close. Because the prompt held, the output filter never had to fire against a real model leak. The filter is checked only against hand-written leaky replies: a full solution, a Java version, an edited copy of the student's code, and a 6-turn drip-feed. It caught all of them and let real hints through. Ten prompts against one model is a small sample, and attackers adapt. The filter exists for the case the prompt eventually misses.
 
 ## Design tradeoffs
 
@@ -114,13 +119,14 @@ npm run eval       # re-run the attack eval (about $0.20 in API calls)
 
 | File | What it does |
 |---|---|
-| `lib/content.ts` | Problem, ladder steps, worked examples, twins, transfer problem, tests |
+| `lib/content.ts` | Problem, the six steps (pictures, number questions, code), twins, transfer problem, tests |
 | `lib/flow.ts` | The flow as a pure state machine (React reducer) |
 | `lib/mastery.ts` | Mastered skills in `localStorage` |
 | `lib/runner.ts`, `public/pyodide-worker.js` | Runs student Python against tests in a Web Worker |
 | `lib/prompt.ts`, `lib/guard.ts`, `lib/tutor.ts` | Guardrail layer 1, layer 2, and the two wired together |
 | `app/api/chat/route.ts` | Server-only API route; holds the key, validates input |
-| `components/FlowTutor.tsx` | The UI |
+| `components/FlowTutor.tsx` | The UI: problem, steps, progress bar, tutor panel |
+| `components/BarPicture.tsx`, `NumberStep.tsx`, `CodeEditor.tsx` | Bar pictures, number answers, and an editor with Python auto-indent |
 | `scripts/eval.ts` | The adversarial eval |
 
 The problem is based on LeetCode 42; the statement, steps and transfer problem are written in my own words.

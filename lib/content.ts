@@ -1,7 +1,28 @@
 // All the teaching content. Hand-written and static on purpose: the LLM never
 // generates steps or judges correctness, so this part can't hallucinate.
+//
+// The ladder starts with pictures and single numbers, then turns what the
+// student noticed into a formula, then into code. Each gap is small enough to
+// cross in about a minute.
 
 export type Test = { call: string; expected: string };
+
+// A row of bars drawn on screen. `labels` is an optional row of numbers under
+// the bars (e.g. "tallest so far"), `water` fills in the trapped water.
+export type Picture = {
+  heights: number[];
+  highlight?: number;
+  water?: boolean;
+  labels?: (number | string)[];
+  caption?: string;
+};
+
+// A step answered with one number by reading a picture, not by writing code.
+export type NumberQuestion = {
+  heights: number[];
+  highlight: number;
+  answer: number;
+};
 
 export type Task = {
   id: string;
@@ -9,21 +30,29 @@ export type Task = {
   statement: string;
   starter: string;
   tests: Test[];
+  number?: NumberQuestion;
+  picture?: Picture;
   // Hidden code run before the student's (e.g. helpers from earlier steps).
   prelude?: string;
   // The one line the student fills in. The tutor must never write it.
   keyLine?: string;
 };
 
-export type SkillId = "single_cell" | "prefix_max" | "suffix_max" | "combine";
+export type SkillId =
+  | "dip"
+  | "far_walls"
+  | "rule"
+  | "prefix_max"
+  | "suffix_max"
+  | "combine";
 
 export type Step = {
   skill: SkillId;
-  label: string;
+  label: string; // short name for the progress bar
   task: Task;
-  // A worked example on a DIFFERENT input. Steps teach, they don't test.
-  example: string;
-  // Shown only if the student fails this step twice (the "floor").
+  // Shown right after a correct answer: a nudge to notice the pattern.
+  reveal: string;
+  // Shown only if the student misses this step twice (the "floor").
   solution: string;
   // Near-identical task to do right after seeing the solution.
   twin: Task;
@@ -32,14 +61,19 @@ export type Step = {
 const tests = (fn: string, cases: [string, string][]): Test[] =>
   cases.map(([args, expected]) => ({ call: `${fn}(${args})`, expected }));
 
+const numberTask = (
+  id: string,
+  title: string,
+  statement: string,
+  number: NumberQuestion,
+): Task => ({ id, title, statement, starter: "", tests: [], number });
+
 export const LEETCODE_URL = "https://leetcode.com/problems/trapping-rain-water/";
 
 export const ORIGINAL: Task = {
   id: "original",
   title: "Rain on a skyline",
-  statement: `You get a list of non-negative whole numbers. Each one is the height of a bar 1 unit wide, and the bars stand side by side. When it rains, water collects in the dips between taller bars. It can't rise above the lower edge of a dip, or it spills over.
-
-Write trap(heights) that returns the total units of water left standing.`,
+  statement: `Each number is the height of a bar 1 unit wide. When it rains, water fills the dips between bars. Write trap(heights) that returns how many units of water stay.`,
   starter: `def trap(heights):
     # Return the total units of water trapped between the bars.
     pass
@@ -53,13 +87,18 @@ Write trap(heights) that returns the total units of water left standing.`,
     ["[3,2,1]", "0"],
     ["[2,0,2]", "2"],
   ]),
+  picture: {
+    heights: [4, 2, 0, 3, 2, 5],
+    water: true,
+    caption: "trap([4, 2, 0, 3, 2, 5]) = 9 (the blue squares)",
+  },
 };
 
 // The one direction the single LLM hint should point toward.
 export const HINT_GOAL =
   "For one position, what decides how high the water can rise there?";
 
-// Reference helpers, available in S4 and its twin as if the student wrote them.
+// Reference helpers, available in the last step and its twin as if the student wrote them.
 const HELPERS = `def water_at(left_max, right_max, h):
     return min(left_max, right_max) - h
 
@@ -80,12 +119,58 @@ def suffix_max(a):
 
 export const STEPS: Step[] = [
   {
-    skill: "single_cell",
-    label: "S1 · One position",
+    skill: "dip",
+    label: "One dip",
+    task: numberTask(
+      "s1",
+      "How much water?",
+      "It rains. How many squares of water sit above the highlighted bar?",
+      { heights: [3, 0, 2], highlight: 1, answer: 2 },
+    ),
+    reveal: "Before you move on: why 2, and not 3?",
+    solution:
+      "Water would spill over the shorter wall, so it can only rise to height 2. The highlighted bar is 0 tall, so 2 squares of water sit on it.",
+    twin: numberTask(
+      "s1-twin",
+      "How much water? (again)",
+      "Same question, new bars. How many squares of water sit above the highlighted bar?",
+      { heights: [1, 0, 4], highlight: 1, answer: 1 },
+    ),
+  },
+  {
+    skill: "far_walls",
+    label: "Far walls",
+    task: numberTask(
+      "s2",
+      "Walls far away",
+      "Now the walls aren't right next to it, and the bar has its own height. How many squares of water sit above the highlighted bar?",
+      { heights: [4, 0, 1, 0, 3], highlight: 2, answer: 2 },
+    ),
+    reveal:
+      "Its neighbors were both 0, so they didn't decide anything. Which bars did?",
+    solution:
+      "Look past the neighbors: the tallest bar anywhere on the left is 4, the tallest anywhere on the right is 3. Water rises to the shorter of those, 3. The bar itself fills 1 of that, so 3 − 1 = 2 squares.",
+    twin: numberTask(
+      "s2-twin",
+      "Walls far away (again)",
+      "How many squares of water sit above the highlighted bar?",
+      { heights: [2, 1, 0, 1, 3], highlight: 1, answer: 1 },
+    ),
+  },
+  {
+    skill: "rule",
+    label: "The rule",
     task: {
-      id: "s1",
-      title: "S1 · Water above one bar",
-      statement: `Forget the whole skyline. Look at ONE position. You already know the tallest bar to its left (counting itself) and the tallest bar to its right (counting itself). How much water sits on top of it?`,
+      id: "s3",
+      title: "Turn it into a rule",
+      statement:
+        "You just did this twice in your head. Write the rule: given the tallest bar on the left, the tallest on the right, and the bar's own height, return the water above it.",
+      picture: {
+        heights: [4, 0, 1, 0, 3],
+        highlight: 2,
+        water: true,
+        caption: "Last step: tallest left 4, tallest right 3, height 1 → 2 squares",
+      },
       starter: `def water_at(left_max, right_max, h):
     # left_max:  tallest bar from the start up to here (this bar included)
     # right_max: tallest bar from here to the end (this bar included)
@@ -93,26 +178,22 @@ export const STEPS: Step[] = [
     return ...  # fill in this line
 `,
       tests: tests("water_at", [
-        ["3, 2, 1", "1"],
+        ["4, 3, 1", "2"],
+        ["3, 2, 0", "2"],
         ["4, 4, 0", "4"],
         ["2, 5, 2", "0"],
       ]),
       keyLine: "min(left_max, right_max) - h",
     },
-    example: `Heights [2, 0, 3]. Look only at the middle bar (height 0).
-
-  Tallest from the start up to here: 2
-  Tallest from here to the end:      3
-
-Water can only rise to the LOWER of the two walls, or it spills
-over that side: the lower wall is 2.
-The bar itself fills 0 of that height, so the water above it is 2 - 0 = 2.`,
+    reveal:
+      "That's the whole idea of the problem. The rest is finding those two tallest bars for every position, fast.",
     solution: `def water_at(left_max, right_max, h):
     return min(left_max, right_max) - h`,
     twin: {
-      id: "s1-twin",
-      title: "S1 twin · Flood at one spot",
-      statement: `Same idea, new story. A hiker stands in a valley. The highest point behind them (counting their spot) is left_peak, the highest point ahead (counting their spot) is right_peak, and their spot has height h. How deep would a flood be where they stand?`,
+      id: "s3-twin",
+      title: "The rule, new names",
+      statement:
+        "Same rule, new story: a hiker stands in a valley between two peaks. How deep would a flood be where they stand?",
       starter: `def flood_at(left_peak, right_peak, h):
     return ...  # fill in this line
 `,
@@ -126,11 +207,17 @@ The bar itself fills 0 of that height, so the water above it is 2 - 0 = 2.`,
   },
   {
     skill: "prefix_max",
-    label: "S2 · Tallest from the left",
+    label: "Tallest from the left",
     task: {
-      id: "s2",
-      title: "S2 · Tallest so far, from the left",
-      statement: `S1 needs left_max for every position. Build them all in one pass: return a list where out[i] is the tallest bar from the start up to and including position i.`,
+      id: "s4",
+      title: "Tallest so far, from the left",
+      statement:
+        "The rule needs left_max for every bar. Return a list where out[i] is the tallest bar from the start up to i.",
+      picture: {
+        heights: [1, 3, 2, 5, 4],
+        labels: [1, 3, 3, 5, 5],
+        caption: "Blue numbers: the tallest bar seen so far, walking left to right",
+      },
       starter: `def prefix_max(a):
     out = []
     best = 0  # heights are never negative
@@ -146,15 +233,7 @@ The bar itself fills 0 of that height, so the water above it is 2 - 0 = 2.`,
       ]),
       keyLine: "best = max(best, x)",
     },
-    example: `[1, 3, 2, 5, 4]: walk left to right, keeping the tallest seen so far.
-
-  see 1 → tallest is 1
-  see 3 → tallest is 3
-  see 2 → still 3
-  see 5 → tallest is 5
-  see 4 → still 5
-
-Result: [1, 3, 3, 5, 5]. Each step compares one new bar with the record.`,
+    reveal: "Now you have left_max for every bar in one pass.",
     solution: `def prefix_max(a):
     out = []
     best = 0
@@ -163,9 +242,9 @@ Result: [1, 3, 3, 5, 5]. Each step compares one new bar with the record.`,
         out.append(best)
     return out`,
     twin: {
-      id: "s2-twin",
-      title: "S2 twin · Shortest so far",
-      statement: `Same walk, but keep the SHORTEST value seen so far.`,
+      id: "s4-twin",
+      title: "Shortest so far",
+      statement: "Same walk, but keep the SHORTEST value seen so far.",
       starter: `def prefix_min(a):
     out = []
     best = float("inf")  # bigger than any number
@@ -184,11 +263,17 @@ Result: [1, 3, 3, 5, 5]. Each step compares one new bar with the record.`,
   },
   {
     skill: "suffix_max",
-    label: "S3 · Tallest from the right",
+    label: "Tallest from the right",
     task: {
-      id: "s3",
-      title: "S3 · Tallest so far, from the right",
-      statement: `S1 also needs right_max for every position: out[i] is the tallest bar from position i to the end. Same idea as S2, but walk from the right and write each answer into its own slot.`,
+      id: "s5",
+      title: "Tallest so far, from the right",
+      statement:
+        "Same thing from the other side: out[i] is the tallest bar from i to the end. Walk from the right and fill each slot.",
+      picture: {
+        heights: [4, 1, 3, 2],
+        labels: [4, 3, 3, 2],
+        caption: "Blue numbers: the tallest bar seen so far, walking right to left",
+      },
       starter: `def suffix_max(a):
     out = [0] * len(a)
     best = 0
@@ -204,14 +289,7 @@ Result: [1, 3, 3, 5, 5]. Each step compares one new bar with the record.`,
       ]),
       keyLine: "out[i] = best",
     },
-    example: `[4, 1, 3, 2]: start at the END and walk left.
-
-  i=3 sees 2 → tallest is 2 → slot 3 gets 2
-  i=2 sees 3 → tallest is 3 → slot 2 gets 3
-  i=1 sees 1 → still 3      → slot 1 gets 3
-  i=0 sees 4 → tallest is 4 → slot 0 gets 4
-
-Result: [4, 3, 3, 2].`,
+    reveal: "And right_max for every bar. You have all three pieces now.",
     solution: `def suffix_max(a):
     out = [0] * len(a)
     best = 0
@@ -220,9 +298,10 @@ Result: [4, 3, 3, 2].`,
         out[i] = best
     return out`,
     twin: {
-      id: "s3-twin",
-      title: "S3 twin · Shortest from the right",
-      statement: `Same backwards walk, but out[i] is the SHORTEST value from position i to the end. This time the saving line is done for you; fill in the update.`,
+      id: "s5-twin",
+      title: "Shortest from the right",
+      statement:
+        "Same backwards walk, but out[i] is the SHORTEST value from i to the end. This time the saving line is done; fill in the update.",
       starter: `def suffix_min(a):
     out = [0] * len(a)
     best = float("inf")
@@ -241,30 +320,32 @@ Result: [4, 3, 3, 2].`,
   },
   {
     skill: "combine",
-    label: "S4 · Put it together",
+    label: "Put it together",
     task: {
-      id: "s4",
-      title: "S4 · Put it together",
-      statement: `water_at, prefix_max and suffix_max are already defined for you (the ones from S1–S3). Add up the water at every position.`,
+      id: "s6",
+      title: "Put it together",
+      statement:
+        "water_at, prefix_max and suffix_max are already defined (the ones you just wrote). Add up the water above every bar.",
+      picture: {
+        heights: [3, 0, 1, 3],
+        water: true,
+        labels: [0, 3, 2, 0],
+        caption: "Blue numbers: water above each bar. Total 0 + 3 + 2 + 0 = 5",
+      },
       starter: `def trap(heights):
     left = prefix_max(heights)
     right = suffix_max(heights)
     total = 0
     for i in range(len(heights)):
-        total += ...  # water at position i
+        total += ...  # water above bar i
     return total
 `,
       tests: ORIGINAL.tests,
       prelude: HELPERS,
       keyLine: "water_at(left[i], right[i], heights[i])",
     },
-    example: `Heights [3, 0, 1, 3]:
-
-  left  = prefix_max → [3, 3, 3, 3]
-  right = suffix_max → [3, 3, 3, 3]
-  water at each spot → 0, 3, 2, 0   (S1 with left[i], right[i], height i)
-
-Total: 0 + 3 + 2 + 0 = 5.`,
+    reveal:
+      "That's Trapping Rain Water. Next: back to the original, on your own, no hints.",
     solution: `def trap(heights):
     left = prefix_max(heights)
     right = suffix_max(heights)
@@ -273,9 +354,10 @@ Total: 0 + 3 + 2 + 0 = 5.`,
         total += water_at(left[i], right[i], heights[i])
     return total`,
     twin: {
-      id: "s4-twin",
-      title: "S4 twin · Deepest spot",
-      statement: `Same pieces, new question: return the depth of the DEEPEST single spot of water (0 if there's no water).`,
+      id: "s6-twin",
+      title: "Deepest spot",
+      statement:
+        "Same pieces, new question: return the depth of the DEEPEST single spot of water (0 if there's none).",
       starter: `def deepest(heights):
     left = prefix_max(heights)
     right = suffix_max(heights)
@@ -299,10 +381,8 @@ Total: 0 + 3 + 2 + 0 = 5.`,
 
 export const TRANSFER: Task = {
   id: "transfer",
-  title: "Transfer · Snow between roofs",
-  statement: `A street has flat roofs of different heights, each 1 unit wide, side by side. A blizzard fills every gap between roofs with snow. Snow can't pile higher than the lower of the tallest roofs on each side, or the wind blows it away.
-
-Write snow_total(roofs) that returns the total units of snow that stay. Blank editor, no hints: this checks that the idea is yours now.`,
+  title: "New problem · Snow between roofs",
+  statement: `Flat roofs of different heights stand side by side. A blizzard fills the gaps with snow, but snow can't pile higher than the lower of the tallest roofs on each side. Write snow_total(roofs) that returns how much snow stays. Blank editor, no hints.`,
   starter: `def snow_total(roofs):
     pass
 `,
@@ -327,17 +407,22 @@ export function taskById(id: string): Task | undefined {
   return ALL_TASKS.find((t) => t.id === id);
 }
 
+// Water above bar i: the shorter of the tallest bars on each side, minus its height.
+export function waterLevels(heights: number[]): number[] {
+  return heights.map((h, i) =>
+    Math.min(Math.max(...heights.slice(0, i + 1)), Math.max(...heights.slice(i))) - h,
+  );
+}
+
 export type Cell = "bar" | "water" | "air";
 
-// The picture of bars and water, top row first, e.g. for [4, 2, 0, 3, 2, 5].
+// The picture of bars and water, top row first.
 export function barCells(heights: number[]): Cell[][] {
+  const water = waterLevels(heights);
   const top = Math.max(0, ...heights);
-  const level = heights.map((_, i) =>
-    Math.min(Math.max(...heights.slice(0, i + 1)), Math.max(...heights.slice(i))),
-  );
   const rows: Cell[][] = [];
   for (let y = top; y >= 1; y--) {
-    rows.push(heights.map((h, i) => (h >= y ? "bar" : level[i] >= y ? "water" : "air")));
+    rows.push(heights.map((h, i) => (h >= y ? "bar" : h + water[i] >= y ? "water" : "air")));
   }
   return rows;
 }

@@ -25,7 +25,9 @@ export type TutorResult = {
 // answer, and a step's chat may not give away that step's answer.
 function forbiddenLines(mode: Mode, task: Task): string[] {
   if (mode === "hint") {
-    return STEPS.flatMap((s) => [s.task.keyLine!, s.twin.keyLine!]);
+    return STEPS.flatMap((s) => [s.task.keyLine, s.twin.keyLine]).filter(
+      (line): line is string => !!line,
+    );
   }
   return task.keyLine ? [task.keyLine] : [];
 }

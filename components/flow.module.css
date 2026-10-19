@@ -1,28 +1,11 @@
 .page {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  padding: 24px;
+  gap: 20px;
+  padding: 32px 24px;
   max-width: 1200px;
   width: 100%;
   margin: 0 auto;
-}
-
-.header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 16px;
-  flex-wrap: wrap;
-}
-
-.header h1 {
-  font-size: 24px;
-}
-
-.headerButtons {
-  display: flex;
-  gap: 8px;
 }
 
 .page button {
@@ -46,30 +29,46 @@
   color: #fff;
 }
 
+/* Progress bar: only shown on the ladder. */
 .progress {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
   gap: 6px;
-  list-style: none;
-  font-size: 13px;
 }
 
-.progress li {
-  padding: 4px 10px;
-  border: 1px solid var(--border);
+.progressTrack {
+  display: flex;
+  gap: 4px;
+}
+
+.progressTrack span {
+  flex: 1;
+  height: 8px;
   border-radius: 999px;
 }
 
-.progress li.active {
+.segDone {
   background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
+}
+
+.segCurrent {
+  background: var(--accent);
+  opacity: 0.5;
+}
+
+.segSkip {
+  background: var(--accent);
+  opacity: 0.2;
+}
+
+.segTodo {
+  background: var(--border);
 }
 
 .columns {
   display: grid;
   grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
-  gap: 24px;
+  gap: 32px;
   align-items: start;
 }
 
@@ -77,18 +76,18 @@
 .right {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
   min-width: 0;
 }
 
-.left h2,
-.right h2 {
-  font-size: 18px;
+.left h2 {
+  font-size: 22px;
 }
 
 .statement {
   white-space: pre-wrap;
-  line-height: 1.5;
+  line-height: 1.55;
+  font-size: 16px;
 }
 
 .dim {
@@ -101,9 +100,108 @@
   text-decoration: underline;
 }
 
+/* Bar pictures. */
+.picture {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.grid {
+  display: grid;
+  grid-auto-rows: 30px;
+  gap: 2px;
+}
+
+.bar,
+.barHighlight,
+.water,
+.air {
+  border-radius: 3px;
+}
+
+.bar {
+  background: var(--foreground);
+  opacity: 0.55;
+}
+
+.barHighlight {
+  background: var(--foreground);
+  opacity: 0.85;
+}
+
+.water {
+  background: #38bdf8;
+  opacity: 0.75;
+}
+
+.highlightColumn {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.heightLabel,
+.heightHighlight,
+.valueLabel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 13px;
+}
+
+.heightLabel {
+  opacity: 0.6;
+}
+
+.heightHighlight {
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.valueLabel {
+  color: #0ea5e9;
+  font-weight: 600;
+}
+
+/* Answer forms and feedback. */
+.numberForm,
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.numberForm input {
+  width: 90px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--foreground);
+  font: inherit;
+  font-size: 18px;
+}
+
+.passed {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid #16a34a;
+  border-radius: 8px;
+  background: rgba(22, 163, 74, 0.08);
+}
+
+.passed strong {
+  color: #16a34a;
+}
+
 .example pre,
 .solution,
-.built pre,
 .stdout,
 .errorBox {
   font-family: var(--font-geist-mono), monospace;
@@ -112,33 +210,7 @@
   overflow-x: auto;
 }
 
-.bars {
-  display: flex;
-  flex-direction: column;
-  align-self: flex-start;
-}
-
-.bars div {
-  display: flex;
-}
-
-.bars span {
-  width: 22px;
-  height: 22px;
-}
-
-.bar {
-  background: var(--foreground);
-  opacity: 0.75;
-}
-
-.water {
-  background: #38bdf8;
-  opacity: 0.6;
-}
-
-.example,
-.built {
+.example {
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -166,13 +238,6 @@
   color: var(--foreground);
   resize: vertical;
   tab-size: 4;
-}
-
-.actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
 }
 
 .results {
@@ -226,6 +291,14 @@
   font-size: 14px;
 }
 
+.doneList {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* Tutor panel. */
 .chat {
   display: flex;
   flex-direction: column;
@@ -236,7 +309,7 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
-  min-height: 160px;
+  min-height: 120px;
 }
 
 .user,

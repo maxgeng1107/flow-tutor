@@ -41,11 +41,3 @@ export function saveMastery(mastery: Mastery): void {
     // Storage unavailable: mastery lasts for this visit only.
   }
 }
-
-export function clearMastery(): void {
-  try {
-    localStorage.removeItem(KEY);
-  } catch {
-    // Nothing to clear.
-  }
-}

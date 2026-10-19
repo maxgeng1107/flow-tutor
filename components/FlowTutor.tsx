@@ -1,13 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import {
-  LEETCODE_URL,
-  ORIGINAL,
-  STEPS,
-  barCells,
-  type Task,
-} from "@/lib/content";
+import { LEETCODE_URL, ORIGINAL, STEPS, type Picture, type Task } from "@/lib/content";
 import {
   currentTask,
   flowReducer,
@@ -15,12 +9,15 @@ import {
   STUCK_AFTER_MS,
   type FlowAction,
   type FlowState,
+  type Phase,
 } from "@/lib/flow";
-import { clearMastery, loadMastery, saveMastery, NO_MASTERY, type Mastery } from "@/lib/mastery";
+import { loadMastery, NO_MASTERY, saveMastery, type Mastery } from "@/lib/mastery";
 import { allPassed, preloadPython, runTests, type RunResult } from "@/lib/runner";
 import type { Guard } from "@/lib/tutor";
 import AskWhy, { GUARD_NOTES } from "./AskWhy";
+import BarPicture from "./BarPicture";
 import CodeEditor from "./CodeEditor";
+import NumberStep from "./NumberStep";
 import RunResults from "./RunResults";
 import styles from "./flow.module.css";
 
@@ -32,21 +29,50 @@ type Hint =
 
 type LastRun = { taskId: string; run: RunResult; runNumber: number; elapsed: string };
 
+// A correct answer waits on screen (with a nudge to reflect) until "Next".
+type Passed = { taskId: string; at: number };
+
 const start = (mastery: Mastery): FlowState =>
   flowReducer(initialFlow, { type: "start", mastery, at: Date.now() });
+
+// Visiting with ?reset starts with no mastery (for demos). The save effect
+// then overwrites what was stored, and the URL is tidied after the first render.
+const RESET = typeof window !== "undefined" && new URLSearchParams(window.location.search).has("reset");
 
 function clock(ms: number): string {
   const s = Math.max(0, Math.floor(ms / 1000));
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
+function pictureFor(task: Task, solved: boolean): Picture | undefined {
+  if (task.number) {
+    // The water appears once the student has answered.
+    return { heights: task.number.heights, highlight: task.number.highlight, water: solved };
+  }
+  return task.picture;
+}
+
+function afterPassing(phase: Phase): { note: string; next: string } {
+  switch (phase.kind) {
+    case "original":
+      return { note: "All tests pass. Now prove it on a problem you haven't seen.", next: "Next: a new problem →" };
+    case "ladder":
+      return phase.part === "twin"
+        ? { note: "Nice. Back on the path.", next: "Next →" }
+        : { note: STEPS[phase.step].reveal, next: "Next →" };
+    default:
+      return { note: "You solved a new problem from a blank editor.", next: "Finish" };
+  }
+}
+
 export default function FlowTutor() {
-  const [flow, setFlow] = useState(() => start(loadMastery()));
+  const [flow, setFlow] = useState(() => start(RESET ? NO_MASTERY : loadMastery()));
   const [codeByTask, setCodeByTask] = useState<Record<string, string>>({});
-  // Code that passed each ladder step, shown as "what you built" on the way back up.
-  const [built, setBuilt] = useState<Record<string, string>>({});
+  // After the ladder, the original must be solved with no help on screen.
+  const [climbedBack, setClimbedBack] = useState(false);
   const [hint, setHint] = useState<Hint>({ status: "none" });
   const [lastRun, setLastRun] = useState<LastRun | null>(null);
+  const [passed, setPassed] = useState<Passed | null>(null);
   const [running, setRunning] = useState(false);
   const [pythonError, setPythonError] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
@@ -54,10 +80,12 @@ export default function FlowTutor() {
   const { phase, attempt } = flow;
   const task = currentTask(phase);
   const code = task ? (codeByTask[task.id] ?? task.starter) : "";
+  const isPassed = !!task && passed?.taskId === task.id;
 
   // Pyodide takes a few seconds to load, so start right away.
   useEffect(() => {
     preloadPython().catch((err: Error) => setPythonError(err.message));
+    if (RESET) window.history.replaceState(null, "", window.location.pathname);
   }, []);
 
   useEffect(() => saveMastery(flow.mastery), [flow.mastery]);
@@ -84,6 +112,7 @@ export default function FlowTutor() {
     (action: FlowAction) => {
       const next = flowReducer(flow, action);
       setFlow(next);
+      if (next.phase.kind === "ladder") setClimbedBack(true);
       const nowHinted = next.phase.kind === "original" && next.phase.hinted;
       if (nowHinted && hint.status === "none") {
         requestHint(codeByTask[ORIGINAL.id] ?? ORIGINAL.starter);
@@ -97,123 +126,119 @@ export default function FlowTutor() {
     const id = setInterval(() => {
       const t = Date.now();
       setNow(t);
-      if (flow.phase.kind === "original" && t - flow.attempt.startedAt > STUCK_AFTER_MS) {
+      const solving = flow.phase.kind === "original" && passed?.taskId !== ORIGINAL.id;
+      if (solving && t - flow.attempt.startedAt > STUCK_AFTER_MS) {
         act({ type: "stuck", at: t });
       }
     }, 1000);
     return () => clearInterval(id);
-  }, [flow, act]);
+  }, [flow, act, passed]);
 
   async function run(t: Task) {
     setRunning(true);
     const result = await runTests(code, t.tests, t.prelude);
     setRunning(false);
     const at = Date.now();
-    setLastRun({
-      taskId: t.id,
-      run: result,
-      runNumber: attempt.runs + 1,
-      elapsed: clock(at - attempt.startedAt),
-    });
-    const passed = allPassed(result);
-    if (passed && phase.kind === "ladder") setBuilt((b) => ({ ...b, [t.id]: code }));
-    act({ type: "run", passed, at });
+    setLastRun({ taskId: t.id, run: result, runNumber: attempt.runs + 1, elapsed: clock(at - attempt.startedAt) });
+    if (allPassed(result)) {
+      setPassed({ taskId: t.id, at });
+    } else {
+      act({ type: "run", passed: false, at });
+    }
   }
 
-  function restart(mastery: Mastery) {
-    setFlow(start(mastery));
-    setCodeByTask({});
-    setBuilt({});
-    setHint({ status: "none" });
-    setLastRun(null);
+  function answer(t: Task, correct: boolean) {
+    const at = Date.now();
+    if (correct) setPassed({ taskId: t.id, at });
+    else act({ type: "run", passed: false, at });
   }
+
+  function goNext() {
+    if (!passed) return;
+    act({ type: "run", passed: true, at: passed.at });
+    setPassed(null);
+  }
+
+  const inTwin = phase.kind === "ladder" && phase.part === "twin";
+  const stuckButton = !inTwin && !isPassed && (
+    <button type="button" onClick={() => act({ type: "stuck", at: Date.now() })} disabled={running}>
+      I&apos;m stuck
+    </button>
+  );
+  const picture = task && pictureFor(task, isPassed);
 
   return (
     <div className={styles.page}>
-      <header className={styles.header}>
-        <div>
-          <h1>Flow Tutor</h1>
-          <p className={styles.dim}>
-            One hint. Still stuck? Smaller steps, then back up. Then prove it on a new problem.
-          </p>
-        </div>
-        <div className={styles.headerButtons}>
-          <button onClick={() => restart(flow.mastery)}>Start over</button>
-          <button
-            onClick={() => {
-              clearMastery();
-              restart(NO_MASTERY);
-            }}
-          >
-            Forget mastery
-          </button>
-        </div>
-      </header>
-
-      <Progress flow={flow} />
+      {phase.kind === "ladder" && <ProgressBar flow={flow} />}
 
       <div className={styles.columns}>
         <section className={styles.left}>
           {phase.kind === "done" ? (
             <Done mastery={flow.mastery} />
           ) : phase.kind === "ladder" && phase.part === "solution" ? (
-            <Solution
-              step={phase.step}
-              onContinue={() => act({ type: "continue", at: Date.now() })}
-            />
+            <Solution step={phase.step} onContinue={() => act({ type: "continue", at: Date.now() })} />
           ) : (
             task && (
               <>
                 <h2>{task.title}</h2>
                 <p className={styles.statement}>{task.statement}</p>
+                {picture && <BarPicture {...picture} />}
                 {task.id === ORIGINAL.id && (
-                  <>
-                    <Bars heights={[4, 2, 0, 3, 2, 5]} />
-                    <p className={styles.dim}>
-                      [4, 2, 0, 3, 2, 5] holds 9 units of water (blue). Based on{" "}
-                      <a href={LEETCODE_URL} target="_blank" rel="noreferrer">
-                        LeetCode 42, Trapping Rain Water
-                      </a>
-                      .
-                    </p>
-                  </>
+                  <p className={styles.dim}>
+                    Based on{" "}
+                    <a href={LEETCODE_URL} target="_blank" rel="noreferrer">
+                      LeetCode 42
+                    </a>
+                    .
+                  </p>
                 )}
-                {phase.kind === "ladder" && phase.part === "step" && (
-                  <div className={styles.example}>
-                    <strong>Worked example</strong>
-                    <pre>{STEPS[phase.step].example}</pre>
-                  </div>
-                )}
-                {phase.kind === "ladder" && phase.part === "twin" && (
+                {inTwin && !task.number && (
                   <div className={styles.example}>
                     <strong>The step you just saw</strong>
-                    <pre>{STEPS[phase.step].solution}</pre>
+                    <pre>{STEPS[(phase as { step: number }).step].solution}</pre>
                   </div>
                 )}
-                <CodeEditor
-                  value={code}
-                  onChange={(c) => setCodeByTask((m) => ({ ...m, [task.id]: c }))}
-                />
-                <div className={styles.actions}>
-                  <button
-                    className={styles.primary}
-                    onClick={() => run(task)}
-                    disabled={running || !!pythonError}
-                  >
-                    {running ? "Running…" : "Run tests"}
-                  </button>
-                  {!(phase.kind === "ladder" && phase.part === "twin") && (
-                    <button onClick={() => act({ type: "stuck", at: Date.now() })} disabled={running}>
-                      I&apos;m stuck
+
+                {task.number ? (
+                  !isPassed && (
+                    <NumberStep
+                      key={task.id}
+                      question={task.number}
+                      onAnswer={(correct) => answer(task, correct)}
+                      stuckButton={stuckButton}
+                    />
+                  )
+                ) : (
+                  <>
+                    <CodeEditor value={code} onChange={(c) => setCodeByTask((m) => ({ ...m, [task.id]: c }))} />
+                    {!isPassed && (
+                      <div className={styles.actions}>
+                        <button
+                          className={styles.primary}
+                          onClick={() => run(task)}
+                          disabled={running || !!pythonError}
+                        >
+                          {running ? "Running…" : "Run tests"}
+                        </button>
+                        {stuckButton}
+                        <span className={styles.dim}>{clock(now - attempt.startedAt)}</span>
+                      </div>
+                    )}
+                    {pythonError && <p className={styles.error}>Python failed to load: {pythonError}</p>}
+                    {lastRun?.taskId === task.id && (
+                      <RunResults run={lastRun.run} runNumber={lastRun.runNumber} elapsed={lastRun.elapsed} />
+                    )}
+                  </>
+                )}
+
+                {isPassed && (
+                  <div className={styles.passed}>
+                    <strong>✓ {task.number ? `Yes, ${task.number.answer}.` : "Correct."}</strong>
+                    <p>{afterPassing(phase).note}</p>
+                    <button className={styles.primary} onClick={goNext} autoFocus>
+                      {afterPassing(phase).next}
                     </button>
-                  )}
-                  <span className={styles.dim}>
-                    {clock(now - attempt.startedAt)} on this task
-                  </span>
-                </div>
-                {pythonError && <p className={styles.error}>Python failed to load: {pythonError}</p>}
-                {lastRun?.taskId === task.id && (
-                  <RunResults run={lastRun.run} runNumber={lastRun.runNumber} elapsed={lastRun.elapsed} />
+                  </div>
                 )}
               </>
             )
@@ -221,16 +246,11 @@ export default function FlowTutor() {
         </section>
 
         <aside className={styles.right}>
-          <h2>Tutor</h2>
-          {phase.kind === "original" && (
+          {phase.kind === "original" && climbedBack && (
+            <p className={styles.dim}>No hints this time. You built every piece on the way up.</p>
+          )}
+          {phase.kind === "original" && !climbedBack && (
             <>
-              {hint.status === "none" && (
-                <p className={styles.dim}>
-                  Try it first. Stuck? Press <b>I&apos;m stuck</b> once for a single hint. Press it
-                  again (or fail two runs) and we&apos;ll rebuild the path in small steps instead of
-                  piling on more hints.
-                </p>
-              )}
               {hint.status === "loading" && <div className={styles.assistant}>Thinking of one good hint…</div>}
               {hint.status === "error" && <p className={styles.error}>{hint.message}</p>}
               {hint.status === "ready" && (
@@ -240,118 +260,70 @@ export default function FlowTutor() {
                   {GUARD_NOTES[hint.guard] && <div className={styles.guardNote}>{GUARD_NOTES[hint.guard]}</div>}
                 </div>
               )}
-              <Built built={built} />
             </>
           )}
           {phase.kind === "ladder" && phase.part !== "solution" && task && (
-            <AskWhy
-              key={task.id}
-              taskId={task.id}
-              code={code}
-              onAsk={() => act({ type: "helped" })}
-            />
+            <AskWhy key={task.id} taskId={task.id} code={code} onAsk={() => act({ type: "helped" })} />
           )}
-          {phase.kind === "ladder" && phase.part === "solution" && (
-            <p className={styles.dim}>
-              Read the answer for this step, then do its twin. Seeing one and doing a near-identical
-              one beats staring at a blank editor.
-            </p>
-          )}
-          {phase.kind === "transfer" && (
-            <p className={styles.dim}>
-              No hints here. If you&apos;re stuck, press <b>I&apos;m stuck</b> and we&apos;ll go back
-              down the ladder to the part that needs work (skipping what you&apos;ve mastered).
-            </p>
-          )}
-          {phase.kind === "done" && <p className={styles.dim}>Nothing to help with. You did it.</p>}
         </aside>
       </div>
     </div>
   );
 }
 
-function Bars({ heights }: { heights: number[] }) {
-  return (
-    <div className={styles.bars} aria-label={`Bars ${heights.join(", ")} with trapped water`}>
-      {barCells(heights).map((row, y) => (
-        <div key={y}>
-          {row.map((cell, x) => (
-            <span key={x} className={styles[cell]} />
-          ))}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function Progress({ flow }: { flow: FlowState }) {
+// Shown only on the ladder: one segment per step. Mastered steps that will be
+// skipped are drawn lighter.
+function ProgressBar({ flow }: { flow: FlowState }) {
   const { phase, mastery } = flow;
-  const items = [
-    { id: "original", label: "Original", active: phase.kind === "original" },
-    ...STEPS.map((s, i) => ({
-      id: s.skill,
-      label: s.label.split(" · ")[0],
-      active: phase.kind === "ladder" && phase.step === i,
-      mastered: mastery[s.skill],
-    })),
-    { id: "transfer", label: "Transfer", active: phase.kind === "transfer" },
-    { id: "done", label: "Done", active: phase.kind === "done" },
-  ];
+  if (phase.kind !== "ladder") return null;
+  const step = STEPS[phase.step];
+  const suffix = phase.part === "solution" ? " · the answer" : phase.part === "twin" ? " · one more like it" : "";
   return (
-    <ol className={styles.progress}>
-      {items.map((item) => (
-        <li
-          key={item.id}
-          className={item.active ? styles.active : undefined}
-          title={"mastered" in item && item.mastered ? "Mastered: skipped on the ladder" : undefined}
-        >
-          {item.label}
-          {"mastered" in item && item.mastered ? " ✓" : ""}
-        </li>
-      ))}
-    </ol>
+    <div className={styles.progress}>
+      <div className={styles.progressTrack}>
+        {STEPS.map((s, i) => {
+          const state =
+            i < phase.step ? styles.segDone
+            : i === phase.step ? styles.segCurrent
+            : mastery[s.skill] ? styles.segSkip
+            : styles.segTodo;
+          return <span key={s.skill} className={state} title={s.label} />;
+        })}
+      </div>
+      <p className={styles.dim}>
+        Step {phase.step + 1} of {STEPS.length} · {step.label}
+        {suffix}
+      </p>
+    </div>
   );
 }
 
 function Solution({ step, onContinue }: { step: number; onContinue: () => void }) {
   const s = STEPS[step];
+  const q = s.task.number;
   return (
     <>
       <h2>{s.task.title}: the answer</h2>
       <p className={styles.statement}>
-        Two misses on this step, so here is its full answer (this step only, not the whole
-        problem). Read it next to the example, then do a near-identical twin yourself.
+        Two misses, so here&apos;s the answer for this step only. Then try one more like it yourself.
       </p>
-      <div className={styles.example}>
-        <strong>Worked example</strong>
-        <pre>{s.example}</pre>
-      </div>
-      <pre className={styles.solution}>{s.solution}</pre>
+      {q ? (
+        <>
+          <BarPicture heights={q.heights} highlight={q.highlight} water />
+          <p className={styles.statement}>{s.solution}</p>
+        </>
+      ) : (
+        <>
+          {s.task.picture && <BarPicture {...s.task.picture} />}
+          <pre className={styles.solution}>{s.solution}</pre>
+        </>
+      )}
       <div className={styles.actions}>
-        <button className={styles.primary} onClick={onContinue}>
-          Try the twin
+        <button className={styles.primary} onClick={onContinue} autoFocus>
+          Try one more like it
         </button>
       </div>
     </>
-  );
-}
-
-function Built({ built }: { built: Record<string, string> }) {
-  // A step solved via the floor shows its answer (which the student studied
-  // and then reproduced in the twin), since the twin itself isn't reusable.
-  const pieces = STEPS.flatMap((s) => {
-    const code = built[s.task.id] ?? (built[s.twin.id] ? s.solution : null);
-    return code ? [{ skill: s.skill, code }] : [];
-  });
-  if (pieces.length === 0) return null;
-  return (
-    <div className={styles.built}>
-      <strong>What you built on the way</strong>
-      <p className={styles.dim}>You can reuse these in your solution.</p>
-      {pieces.map((p) => (
-        <pre key={p.skill}>{p.code}</pre>
-      ))}
-    </div>
   );
 }
 
@@ -360,10 +332,10 @@ function Done({ mastery }: { mastery: Mastery }) {
     <>
       <h2>Done 🎉</h2>
       <p className={styles.statement}>
-        You solved Trapping Rain Water and then a new problem with the same idea from a blank
-        editor. Every skill below is marked mastered, so next time the ladder skips them.
+        You solved Trapping Rain Water, then a new problem with the same idea from a blank editor.
+        These skills are marked mastered, so next time the steps skip them.
       </p>
-      <ul>
+      <ul className={styles.doneList}>
         {STEPS.map((s) => (
           <li key={s.skill}>
             {mastery[s.skill] ? "✓" : "·"} {s.label}
