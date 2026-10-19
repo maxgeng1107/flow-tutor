@@ -27,7 +27,7 @@ ORIGINAL ──stuck──▶ one HINT (LLM) ──still stuck──▶ STEPS  S
    ▲                                                  (mastered steps skipped)
    └────────── climb back up: solve it alone, no hints on screen ──────┘
 
-ORIGINAL solved ──▶ TRANSFER (new story, blank editor, no hints) ──solved──▶ DONE
+ORIGINAL solved ──▶ TRANSFER (new problem, same idea, no hints) ──solved──▶ DONE
                         └──stuck──▶ STEPS (from the first unmastered one), then back
 ```
 
@@ -44,12 +44,12 @@ The screen starts with just the problem. The progress bar only appears once the 
 | S5 | Tallest from the right | `suffix_max(a)` | one line of code |
 | S6 | Put it together | `trap(heights)` using S3–S5 | one line of code |
 
-The steps start from pictures and single numbers, so the student *notices* the rule before writing it. Each one should take about a minute. Every step shows a picture. After a correct answer, the step pauses on a short reflection prompt (e.g. "why 2, and not 3?") before moving on.
+The steps start from pictures and single numbers, so the student *notices* the rule before writing it. Each one should take about a minute. Every step shows a picture. After a correct answer the step pauses in two stages. First a question to think about (e.g. "why 2, and not 3?"). Then, on *Next*, a one-line summary of the rule the step was teaching. Only after that does it move on.
 
 - **Floor:** if the student misses a step twice, it shows that step's answer (only that step), followed by a near-identical *twin* to do themselves.
 - **Mastery:** a skill counts as mastered if the step is right on the first try, with no tutor help, in under 3 minutes. Mastery is saved in `localStorage` and skipped next time. Failing a step revokes its skill. Visit `/?reset` to start fresh.
 - **Climbing back:** after the steps, the original problem comes back with nothing extra on screen. The student solves it alone.
-- **Transfer:** *Snow between roofs*, the same structure in a new story. Solving it marks every skill mastered.
+- **Transfer:** *Street photos*: count the buildings visible from at least one end of a street. It looks unrelated, and pasting `trap` passes 1 of 9 tests. But it's the same idea: a building is hidden from both ends exactly when it's no taller than the shorter of the tallest buildings on each side, i.e. when it sits in a dip. Solving it shows the student recognized the pattern, not the code. Solving it also marks every skill mastered.
 
 ## Where the LLM is used, and where it isn't
 

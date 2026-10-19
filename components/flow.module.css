@@ -196,8 +196,23 @@
   background: rgba(22, 163, 74, 0.08);
 }
 
-.passed strong {
+.passed > strong {
   color: #16a34a;
+}
+
+.rule {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border-left: 3px solid var(--accent);
+  background: var(--surface);
+  border-radius: 4px;
+  line-height: 1.5;
+}
+
+.rule strong {
+  color: var(--accent);
 }
 
 .example pre,

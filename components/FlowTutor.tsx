@@ -29,8 +29,9 @@ type Hint =
 
 type LastRun = { taskId: string; run: RunResult; runNumber: number; elapsed: string };
 
-// A correct answer waits on screen (with a nudge to reflect) until "Next".
-type Passed = { taskId: string; at: number };
+// A correct answer waits on screen until "Next". On the steps it has two
+// stages: a question to think about first, then (after Next) the rule.
+type Passed = { taskId: string; at: number; showRule: boolean };
 
 const start = (mastery: Mastery): FlowState =>
   flowReducer(initialFlow, { type: "start", mastery, at: Date.now() });
@@ -52,14 +53,17 @@ function pictureFor(task: Task, solved: boolean): Picture | undefined {
   return task.picture;
 }
 
-function afterPassing(phase: Phase): { note: string; next: string } {
+// What the "correct" box says. `rule` is only set on the steps.
+function afterPassing(phase: Phase): { note: string; rule?: string; next: string } {
   switch (phase.kind) {
     case "original":
       return { note: "All tests pass. Now prove it on a problem you haven't seen.", next: "Next: a new problem →" };
-    case "ladder":
+    case "ladder": {
+      const step = STEPS[phase.step];
       return phase.part === "twin"
-        ? { note: "Nice. Back on the path.", next: "Next →" }
-        : { note: STEPS[phase.step].reveal, next: "Next →" };
+        ? { note: "Nice. Same idea as the step before.", rule: step.rule, next: "Next →" }
+        : { note: step.reveal, rule: step.rule, next: "Next →" };
+    }
     default:
       return { note: "You solved a new problem from a blank editor.", next: "Finish" };
   }
@@ -141,7 +145,7 @@ export default function FlowTutor() {
     const at = Date.now();
     setLastRun({ taskId: t.id, run: result, runNumber: attempt.runs + 1, elapsed: clock(at - attempt.startedAt) });
     if (allPassed(result)) {
-      setPassed({ taskId: t.id, at });
+      setPassed({ taskId: t.id, at, showRule: false });
     } else {
       act({ type: "run", passed: false, at });
     }
@@ -149,12 +153,17 @@ export default function FlowTutor() {
 
   function answer(t: Task, correct: boolean) {
     const at = Date.now();
-    if (correct) setPassed({ taskId: t.id, at });
+    if (correct) setPassed({ taskId: t.id, at, showRule: false });
     else act({ type: "run", passed: false, at });
   }
 
+  // First Next on a step shows the rule; the next one moves on.
   function goNext() {
     if (!passed) return;
+    if (!passed.showRule && phase.kind === "ladder") {
+      setPassed({ ...passed, showRule: true });
+      return;
+    }
     act({ type: "run", passed: true, at: passed.at });
     setPassed(null);
   }
@@ -231,12 +240,23 @@ export default function FlowTutor() {
                   </>
                 )}
 
-                {isPassed && (
+                {isPassed && passed && (
                   <div className={styles.passed}>
                     <strong>✓ {task.number ? `Yes, ${task.number.answer}.` : "Correct."}</strong>
                     <p>{afterPassing(phase).note}</p>
-                    <button className={styles.primary} onClick={goNext} autoFocus>
-                      {afterPassing(phase).next}
+                    {passed.showRule && afterPassing(phase).rule && (
+                      <div className={styles.rule}>
+                        <strong>The rule</strong>
+                        <p>{afterPassing(phase).rule}</p>
+                      </div>
+                    )}
+                    <button
+                      key={passed.showRule ? "continue" : "next"}
+                      className={styles.primary}
+                      onClick={goNext}
+                      autoFocus
+                    >
+                      {passed.showRule ? "Continue →" : afterPassing(phase).next}
                     </button>
                   </div>
                 )}

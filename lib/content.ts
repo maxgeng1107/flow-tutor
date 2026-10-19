@@ -50,8 +50,10 @@ export type Step = {
   skill: SkillId;
   label: string; // short name for the progress bar
   task: Task;
-  // Shown right after a correct answer: a nudge to notice the pattern.
+  // Shown right after a correct answer: a question to think about first.
   reveal: string;
+  // Shown when the student clicks Next: the rule this step was teaching.
+  rule: string;
   // Shown only if the student misses this step twice (the "floor").
   solution: string;
   // Near-identical task to do right after seeing the solution.
@@ -128,6 +130,8 @@ export const STEPS: Step[] = [
       { heights: [3, 0, 2], highlight: 1, answer: 2 },
     ),
     reveal: "Before you move on: why 2, and not 3?",
+    rule:
+      "Water can only rise as high as the shorter wall. Any higher and it spills over that side.",
     solution:
       "Water would spill over the shorter wall, so it can only rise to height 2. The highlighted bar is 0 tall, so 2 squares of water sit on it.",
     twin: numberTask(
@@ -146,8 +150,9 @@ export const STEPS: Step[] = [
       "Now the walls aren't right next to it, and the bar has its own height. How many squares of water sit above the highlighted bar?",
       { heights: [4, 0, 1, 0, 3], highlight: 2, answer: 2 },
     ),
-    reveal:
-      "Its neighbors were both 0, so they didn't decide anything. Which bars did?",
+    reveal: "Its neighbors were both 0, so they didn't decide anything. Which bars did?",
+    rule:
+      "The walls aren't the neighbors. They're the tallest bar anywhere on the left and the tallest anywhere on the right. Water rises to the shorter of the two, and the bar's own height fills part of that: 3 − 1 = 2.",
     solution:
       "Look past the neighbors: the tallest bar anywhere on the left is 4, the tallest anywhere on the right is 3. Water rises to the shorter of those, 3. The bar itself fills 1 of that, so 3 − 1 = 2 squares.",
     twin: numberTask(
@@ -185,8 +190,9 @@ export const STEPS: Step[] = [
       ]),
       keyLine: "min(left_max, right_max) - h",
     },
-    reveal:
-      "That's the whole idea of the problem. The rest is finding those two tallest bars for every position, fast.",
+    reveal: "Could this ever give a negative number? Why not?",
+    rule:
+      "Water above a bar = min(tallest left, tallest right) − its height. That's the whole idea of Trapping Rain Water. The rest is finding the two walls for every bar, fast.",
     solution: `def water_at(left_max, right_max, h):
     return min(left_max, right_max) - h`,
     twin: {
@@ -233,7 +239,9 @@ export const STEPS: Step[] = [
       ]),
       keyLine: "best = max(best, x)",
     },
-    reveal: "Now you have left_max for every bar in one pass.",
+    reveal: "How many times does your loop look at each bar?",
+    rule:
+      "A running maximum gives the left wall for every bar in one pass: each new bar is compared once with the record so far. That's O(n).",
     solution: `def prefix_max(a):
     out = []
     best = 0
@@ -289,7 +297,9 @@ export const STEPS: Step[] = [
       ]),
       keyLine: "out[i] = best",
     },
-    reveal: "And right_max for every bar. You have all three pieces now.",
+    reveal: "Why does this loop have to walk backwards?",
+    rule:
+      "The same running maximum, walked from the right, gives every bar its right wall. Now each bar knows both of its walls.",
     solution: `def suffix_max(a):
     out = [0] * len(a)
     best = 0
@@ -344,8 +354,9 @@ export const STEPS: Step[] = [
       prelude: HELPERS,
       keyLine: "water_at(left[i], right[i], heights[i])",
     },
-    reveal:
-      "That's Trapping Rain Water. Next: back to the original, on your own, no hints.",
+    reveal: "How many passes over the bars does your whole solution make?",
+    rule:
+      "Two scans find the walls, one more pass adds up the water: O(n) time. That's Trapping Rain Water. Next: the original problem, on your own, with no help on screen.",
     solution: `def trap(heights):
     left = prefix_max(heights)
     right = suffix_max(heights)
@@ -379,22 +390,34 @@ export const STEPS: Step[] = [
   },
 ];
 
+// A different-looking problem built on the same idea: a building is hidden
+// from both ends exactly when it's no taller than the SHORTER of the tallest
+// buildings on each side, i.e. when it sits in a "dip". Copying trap() won't
+// work; recognizing the pattern will.
 export const TRANSFER: Task = {
   id: "transfer",
-  title: "New problem · Snow between roofs",
-  statement: `Flat roofs of different heights stand side by side. A blizzard fills the gaps with snow, but snow can't pile higher than the lower of the tallest roofs on each side. Write snow_total(roofs) that returns how much snow stays. Blank editor, no hints.`,
-  starter: `def snow_total(roofs):
+  title: "New problem · Street photos",
+  statement: `You take one photo from the left end of a street and one from the right end. A building shows up in a photo if it's strictly taller than every building between it and the camera. Write visible_count(heights): how many buildings appear in at least one of the two photos? Blank editor, no hints.`,
+  starter: `def visible_count(heights):
     pass
 `,
-  tests: tests("snow_total", [
-    ["[3,0,0,2,0,4]", "10"],
-    ["[5,2,1,2,1,5]", "14"],
+  tests: tests("visible_count", [
+    ["[3,1,4,2]", "3"],
     ["[]", "0"],
-    ["[7]", "0"],
-    ["[1,1,1]", "0"],
-    ["[0,2,0]", "0"],
-    ["[4,1,4]", "3"],
+    ["[5]", "1"],
+    ["[1,2,3]", "3"],
+    ["[3,2,1]", "3"],
+    ["[2,2]", "2"],
+    ["[1,3,2,3,1]", "4"],
+    ["[5,1,1,1,5]", "2"],
+    ["[4,1,5,1,4]", "3"],
   ]),
+  picture: {
+    heights: [3, 1, 4, 2],
+    highlight: 1,
+    caption:
+      "From the left you see 3 and 4. From the right, 2 and 4. The highlighted 1 is hidden from both, so the answer is 3.",
+  },
 };
 
 export const ALL_TASKS: Task[] = [
